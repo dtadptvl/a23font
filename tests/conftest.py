@@ -9,6 +9,15 @@ from app.db import open_db
 from app.web.main import create_app
 
 
+def pytest_configure(config):
+    # Marker registration lives here (not pytest.ini) because pytest.ini is
+    # outside the task scope for pipeline/test work; functionally equivalent.
+    config.addinivalue_line(
+        "markers",
+        "live: tests that hit live external network endpoints (myfonts.com)",
+    )
+
+
 def tmp_data(tmp_path):
     data_root = tmp_path / "data"
     config = Config(data_root=data_root)
