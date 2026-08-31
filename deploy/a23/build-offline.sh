@@ -1,16 +1,18 @@
 #!/bin/sh
-# A23 offline-leaning image build.
+# A23 image build with deterministic offline assembly.
 #
-# Why: on this phone the mobile network DNS flips between phases (A records
-# fail while AAAA resolves, IPv6 egress is blackholed), and the docker bridge
-# netns has no egress at all. Long-running `docker build` RUN steps therefore
-# cannot complete reliably. This script splits the build into:
-#   stage 1 (download): retryable host-net container fetches .debs + wheels
-#   stage 2 (offline):  dpkg -i / pip --no-index / COPY equivalent, then
-#                       docker commit -> a23font:v1
-# The resulting image is functionally identical to the canonical /Dockerfile
-# (same base, packages, files, metadata); deploy/a23/Dockerfile.a23 remains
-# the BuildKit path for phases where DNS behaves.
+# Why: this phone's mobile-network DNS oscillates between bad phases and the
+# docker bridge netns has no egress at all, so network builds on-device are
+# unreliable. Artifacts are provisioned into $CACHE by EITHER path:
+#   1. scp from the dev host over the Tailscale link (no phone DNS needed):
+#        .buildcache/wheels/*.whl  cp312/aarch64 wheels for requirements.txt
+#        .buildcache/tini-arm64    tini init binary (krallin/tini v0.19.0)
+#   2. this script's retryable on-device download stage (needs a good DNS
+#      window; installs curl/tini via apt instead of the tini binary).
+# The assembly stage is fully offline and docker-commits a23font:v1,
+# functionally identical to the canonical /Dockerfile (same base, deps,
+# files, metadata; the healthcheck uses python urllib instead of curl in the
+# no-apt path). deploy.sh adds the runtime healthcheck flags.
 set -eu
 
 CHROOT_DIR="/data/local/chroot/debian"
@@ -26,13 +28,9 @@ write_inner_scripts() {
 set -e
 printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
 export DEBIAN_FRONTEND=noninteractive
-# Resumable: each sub-step persists its artifacts + marker across attempts,
-# so a flaky-DNS retry only needs one short good window per sub-step.
 mkdir -p /var/lib/apt/lists/partial
 if [ ! -f /cache/lists.done ]; then
   apt-get update
-  # apt-get update can return 0 after a total fetch failure ("old ones used
-  # instead"); verify real list files exist before trusting the marker.
   ls /var/lib/apt/lists/*InRelease >/dev/null 2>&1 || { echo NO_LISTS_FETCHED; exit 1; }
   touch /cache/lists.done
 fi
@@ -50,8 +48,15 @@ echo DOWNLOAD_STAGE_OK
 DL
   cat > "$CHROOT_DIR/tmp/a23mk.sh" <<'MK'
 set -e
-printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
-dpkg -i /cache/debs/*.deb
+if [ -f /cache/tini-arm64 ]; then
+  cp /cache/tini-arm64 /usr/bin/tini
+  chmod 755 /usr/bin/tini
+elif ls /cache/debs/*.deb >/dev/null 2>&1; then
+  dpkg -i /cache/debs/*.deb
+else
+  echo "no tini source in cache" >&2
+  exit 1
+fi
 pip install --no-index --find-links=/cache/wheels -r /src/requirements.txt
 mkdir -p /app /data
 cp -a /src/app /app/app
@@ -59,15 +64,46 @@ cp -a /src/pipeline /app/pipeline
 cp -a /src/worker /app/worker
 cp -a /src/templates /app/templates
 cp -a /src/static /app/static
+cat > /app/healthcheck.py <<'HC'
+import sys, urllib.request
+try:
+    r = urllib.request.urlopen("http://127.0.0.1:8090/health/live", timeout=4)
+    sys.exit(0 if r.status == 200 else 1)
+except Exception:
+    sys.exit(1)
+HC
 echo BUILD_STAGE_OK
 MK
 }
 
+cache_ready() {
+  [ -f "$CHROOT_DIR$CACHE/tini-arm64" ] || ls "$CHROOT_DIR$CACHE"/debs/*.deb >/dev/null 2>&1 || return 1
+  chroot_exec "docker run --rm -v $CACHE:/cache -v $SRC:/src:ro $BASE \
+    pip install --no-index --find-links=/cache/wheels --dry-run --quiet -r /src/requirements.txt"
+}
+
 download_stage() {
-  # Retryable: only this stage needs working DNS (host netns).
   chroot_exec "mkdir -p $CACHE/debs $CACHE/wheels $CACHE/aptlists/partial && docker run --rm --network host \
     -v $CACHE:/cache -v $CACHE/aptlists:/var/lib/apt/lists -v $SRC:/src:ro -v /tmp/a23dl.sh:/dl.sh:ro \
     $BASE sh /dl.sh"
+}
+
+download_loop() {
+  attempts="${A23FONT_BUILD_ATTEMPTS:-25}"
+  i=0
+  until [ "$i" -ge "$attempts" ]; do
+    i=$((i + 1))
+    echo "=== download stage attempt $i/$attempts ==="
+    if download_stage; then
+      return 0
+    fi
+    if [ "$i" -ge "$attempts" ]; then
+      echo "download stage failed after $attempts attempts (DNS/network phases)." >&2
+      echo "Provision $CACHE/wheels and $CACHE/tini-arm64 from the dev host via scp instead." >&2
+      return 1
+    fi
+    sleep 12
+  done
 }
 
 build_stage() {
@@ -76,12 +112,13 @@ build_stage() {
     -v $CACHE:/cache -v $SRC:/src:ro -v /tmp/a23mk.sh:/mk.sh:ro \
     $BASE sleep 7200 >/dev/null"
   chroot_exec "docker exec a23font-build sh /mk.sh"
+  # Runtime healthcheck is applied by deploy.sh (docker run --health-*);
+  # the worker container disables it (--no-healthcheck).
   chroot_exec "docker commit \
     --change 'ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 A23FONT_DATA_ROOT=/data A23FONT_HTTP_HOST=0.0.0.0 A23FONT_HTTP_PORT=8090' \
     --change 'WORKDIR /app' \
     --change 'VOLUME /data' \
     --change 'EXPOSE 8090' \
-    --change 'HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD curl -fsS http://127.0.0.1:8090/health/live || exit 1' \
     --change 'ENTRYPOINT [\"/usr/bin/tini\",\"--\"]' \
     --change 'CMD [\"python\",\"-m\",\"app.web.run\"]' \
     a23font-build $IMG"
@@ -90,20 +127,12 @@ build_stage() {
 
 write_inner_scripts
 
-attempts="${A23FONT_BUILD_ATTEMPTS:-25}"
-i=0
-until [ "$i" -ge "$attempts" ]; do
-  i=$((i + 1))
-  echo "=== download stage attempt $i/$attempts ==="
-  if download_stage; then
-    break
-  fi
-  if [ "$i" -ge "$attempts" ]; then
-    echo "download stage failed after $attempts attempts (DNS/network phases)" >&2
-    exit 1
-  fi
-  sleep 15
-done
+if cache_ready; then
+  echo "cache complete: offline assembly only"
+else
+  echo "cache incomplete: trying on-device download stage"
+  download_loop
+fi
 
 build_stage
 echo "image built: $IMG"
