@@ -1,6 +1,6 @@
 generation: 1
 phase: "implementation"
-active_task: "T-002"
+active_task: null
 next: ["T-001"]
 blockers: ["ENV-1 Prime edit/write tools denied session-wide; Prime-owned file writes delegated to workers with specified content (recorded deviation, content authority stays with Prime)","ENV-2 no Docker on dev host; Docker build/run happens on the A23"]
 reconciliation:

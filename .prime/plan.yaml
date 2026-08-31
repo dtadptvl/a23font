@@ -19,7 +19,7 @@ milestones:
       A3: "Existing A23 services (ssh, tunnel, monitor, ddns) remain healthy during and after deploy"
       A4: "Rollback demonstrated: stack down removes the service without residue"
     depends_on: ["M1"]
-    accepted_ref: null
+    accepted_ref: "T-002"
   M3:
     spec_rev: 1
     outcome: "Reconstruction core correctness proven offline: geometry pass, bezier fitting, confidence checks, FontModel, TTF/OTF build and fonttools/harfbuzz/freetype validation pass on synthetic raster fixtures; cache identity/versioning/atomic-write/checkpoint logic unit-tested."
