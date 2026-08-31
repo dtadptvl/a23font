@@ -31,9 +31,13 @@ export DEBIAN_FRONTEND=noninteractive
 mkdir -p /var/lib/apt/lists/partial
 if [ ! -f /cache/lists.done ]; then
   apt-get update
+  # apt-get update can return 0 after a total fetch failure ("old ones used
+  # instead"); verify real list files exist before trusting the marker.
+  ls /var/lib/apt/lists/*InRelease >/dev/null 2>&1 || { echo NO_LISTS_FETCHED; exit 1; }
   touch /cache/lists.done
 fi
 if [ ! -f /cache/debs.done ]; then
+  ls /var/lib/apt/lists/*InRelease >/dev/null 2>&1 || { echo NO_LISTS_MOUNTED; exit 1; }
   apt-get install -y --no-install-recommends --download-only -o Dir::Cache::archives=/cache/debs curl tini
   ls /cache/debs/*.deb >/dev/null
   touch /cache/debs.done
