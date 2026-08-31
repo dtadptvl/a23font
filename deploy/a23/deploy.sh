@@ -30,8 +30,11 @@ build() {
   if have_compose; then
     chroot_exec "cd /opt/a23font && docker compose --project-name ${PROJECT} build"
   else
-    # --network=host: build-container DNS cannot resolve upstreams on this device
-    chroot_exec "docker build --network=host -t a23font:v1 /opt/a23font"
+    # Device reality: the docker bridge netns has NO egress on this phone
+    # (Android netd blocks it), so classic builds fail apt/pip. BuildKit is
+    # built into dockerd 20.10 and --network=host runs RUN steps in the host
+    # netns, where DNS/egress work. Canonical Dockerfile stays unchanged.
+    chroot_exec "cd /opt/a23font && DOCKER_BUILDKIT=1 docker build --network=host -t a23font:v1 ."
   fi
 }
 
@@ -59,13 +62,18 @@ up() {
     return
   fi
   chroot_exec 'docker volume create a23font-data'
+  # --network host: bridge netns has no egress on this device (matches the
+  # existing a23-cloudflare-ddns / reunion-fund containers). The web app
+  # binds A23FONT_HTTP_HOST:A23FONT_HTTP_PORT (0.0.0.0:8090) directly on the
+  # phone; -p port mapping is not applicable with host networking.
   run_container a23font-web \
     --env-file /opt/a23font/.env \
-    -p "127.0.0.1:${HOST_PORT}:8090" \
+    --network host \
     -v a23font-data:/data \
     a23font:v1
   run_container a23font-worker \
     --env-file /opt/a23font/.env \
+    --network host \
     -v a23font-data:/data \
     a23font:v1 python -m worker.main
 }

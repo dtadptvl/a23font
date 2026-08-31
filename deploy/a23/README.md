@@ -49,8 +49,14 @@ sh /data/local/chroot/debian/opt/a23font/deploy/a23/deploy.sh down    # stop + r
 (project name `a23font`); otherwise it falls back to plain `docker run`
 with containers named `a23font-web` and `a23font-worker`.
 
-The web port is bound to `127.0.0.1` only. Public reachability comes from
-the host-side cloudflared tunnel (Zero Trust ingress -> http://localhost:8090).
+Networking: this phone's docker bridge netns has no egress (Android netd
+blocks it), so on this device `deploy.sh` runs everything with
+`--network host` (same as the existing a23-cloudflare-ddns container) and
+builds with BuildKit (`DOCKER_BUILDKIT=1 docker build --network=host`).
+The web app listens on `0.0.0.0:8090` of the phone; public reachability
+comes from the host-side cloudflared tunnel (Zero Trust ingress ->
+http://localhost:8090). In compose-capable environments the canonical
+`compose.yml` (published ports, default bridge) is used instead.
 
 ## Rollback
 
