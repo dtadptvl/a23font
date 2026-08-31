@@ -1,8 +1,8 @@
-﻿id: "T-005"
-status: "draft"
-governance_hash: ""
+id: "T-005"
+status: "accepted"
+governance_hash: "14cc1f827fb8762b"
 contract_rev: 1
-dispatch_id: 0
+dispatch_id: 1
 validated_generation: 1
 objective_ref: "M3"
 objective_spec_rev: 2
@@ -18,9 +18,9 @@ recovery: "redo"
 extra_policies: []
 forbidden: [".prime/**",".kilo/**",".ai/**","app/**","templates/**","static/**","deploy/**","Dockerfile","compose.yml"]
 workspace:
-  base_commit: null
+  base_commit: "18bd4173de198edc1b83621a6b3f5c37e53f6441"
   protected_dirty_paths: []
-  protected_dirty_hash: null
+  protected_dirty_hash: "e3b0c44298fc1c14"
 liveness:
   contract_rev: 1
   same_boundary_failures: 0

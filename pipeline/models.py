@@ -126,7 +126,15 @@ class FontRequest:
 
 @dataclass
 class GlyphManifest:
-    """Glyph discovery result for one md5 identity (consumed by later stages)."""
+    """Glyph discovery result for one md5 identity (consumed by later stages).
+
+    entries: per-glyph dicts recorded from gmap layout pages, each shaped
+    {"gid": str, "cp": int, "meta": {...small scalar fields...}}.
+    notes: human-readable stop/error details appended by discovery.
+    glyphs: downstream frozen/observed glyph payloads. Kept with its default
+    so existing keyword construction (md5/total_glyphs/unicode_coverage/pages/
+    stop_reason) remains compatible.
+    """
 
     md5: str
     total_glyphs: int
@@ -134,3 +142,5 @@ class GlyphManifest:
     pages: int
     stop_reason: str
     glyphs: List[Dict[str, Any]] = field(default_factory=list)
+    entries: List[Dict[str, Any]] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)

@@ -29,7 +29,7 @@ milestones:
       A3: "Cache identity/versioning, atomic writes, checkpoint/resume logic pass unit tests"
       A4: "Glyph discovery stop rules (empty result, repeated page signature, short final page, zero new glyphs) unit-tested"
     depends_on: ["M1"]
-    accepted_ref: null
+    accepted_ref: "T-005"
   M4:
     spec_rev: 1
     outcome: "MyFonts source adapter resolves real supported collection/family URLs into stable FontRequest/style lists with MD5 identities via live endpoints, with SSRF/allowlist rejection proven against invalid and hostile inputs."
