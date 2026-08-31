@@ -1,0 +1,42 @@
+# Secrets / env — never commit
+*.env
+*.env.*
+!*.env.example
+a23font-cloudflare.env
+cloudflare*.env
+token*
+*.token
+credentials*
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local state / outputs
+/data/
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build artifacts
+dist/
+build/
+*.zip
+
+# Probe temp files
+.probe-*

@@ -1,0 +1,11 @@
+generation: 0
+phase: "bootstrap"
+active_task: null
+next: []
+blockers: []
+reconciliation:
+  status: "needs_intent"
+  event: null
+  roots: []
+  pending: []
+  invalidated: []

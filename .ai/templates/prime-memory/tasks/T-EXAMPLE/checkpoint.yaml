@@ -1,0 +1,6 @@
+task: "T-001"
+contract_rev: 1
+source_dispatch: 1
+stage: "meaningful-proven-boundary"
+next: ["next bounded action"]
+proved: []

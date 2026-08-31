@@ -1,0 +1,10 @@
+objective: "UNSET"
+non_goals: []
+milestones:
+  M1:
+    spec_rev: 1
+    outcome: "Replace with the first durable project outcome"
+    acceptance:
+      A1: "Replace with an observable acceptance condition"
+    depends_on: []
+    accepted_ref: null

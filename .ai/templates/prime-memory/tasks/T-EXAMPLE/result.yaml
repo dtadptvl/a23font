@@ -1,0 +1,10 @@
+task: "T-001"
+contract_rev: 1
+dispatch_id: 1
+status: "completed"
+proved: ["M1.A1"]
+changed: ["src/example/file.ext"]
+evidence: ["focused acceptance check PASS"]
+failure_class: null
+failure_boundary: null
+note: null
