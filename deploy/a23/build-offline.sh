@@ -108,10 +108,11 @@ download_loop() {
 
 build_stage() {
   chroot_exec "docker rm -f a23font-build >/dev/null 2>&1 || true"
-  chroot_exec "docker run -d --name a23font-build --network host \
+  # No docker exec here: on this device exec does not join the container
+  # mount namespace. Run the assembly script as the container command.
+  chroot_exec "docker run --name a23font-build --network host \
     -v $CACHE:/cache -v $SRC:/src:ro -v /tmp/a23mk.sh:/mk.sh:ro \
-    $BASE sleep 7200 >/dev/null"
-  chroot_exec "docker exec a23font-build sh /mk.sh"
+    $BASE sh /mk.sh"
   # Runtime healthcheck is applied by deploy.sh (docker run --health-*);
   # the worker container disables it (--no-healthcheck).
   chroot_exec "docker commit \
