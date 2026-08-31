@@ -73,14 +73,15 @@ up() {
   # existing a23-cloudflare-ddns / reunion-fund containers). The web app
   # binds A23FONT_HTTP_HOST:A23FONT_HTTP_PORT (0.0.0.0:8090) directly on the
   # phone; -p port mapping is not applicable with host networking.
+  # --no-healthcheck: docker healthchecks use the exec mechanism, which does
+  # not join the container mount namespace on this device (see README).
+  # Liveness is observed via /health/live through the tunnel instead.
   run_container a23font-web \
     --env-file /opt/a23font/.env \
     --network host \
-    --health-cmd=/app/healthcheck.py \
-    --health-interval 30s --health-timeout 5s --health-start-period 15s --health-retries 3 \
+    --no-healthcheck \
     -v a23font-data:/data \
     a23font:v1
-  # Worker does not serve HTTP: no healthcheck for it.
   run_container a23font-worker \
     --env-file /opt/a23font/.env \
     --network host \
