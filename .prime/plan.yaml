@@ -1,10 +1,87 @@
-objective: "UNSET"
-non_goals: []
+objective: "Deliver A23Font production service at https://font.esma.eu.org on the real Samsung Galaxy A23: user submits supported myfonts.com collection/family URL (+optional Vietnamese extension) via web UI, persistent job runs the fast15.md reconstruction pipeline on-device, validated TTF+OTF outputs are packaged into one ZIP with reports and downloaded. fast15.md is the authoritative pipeline spec; the real A23 is the production performance authority."
+non_goals: ["No React/Next.js/Redis/PostgreSQL/Celery/RabbitMQ/Kubernetes/distributed workers in v1","No second Cloudflare tunnel; reuse the existing host-managed token tunnel","No authentication subsystem in v1","No bypass of source authentication/anti-bot/licensing","No autonomous physical reboot of the A23","No modification of kernel/Android/battery-controller/Docker-supervisor subsystems"]
 milestones:
   M1:
     spec_rev: 1
-    outcome: "Replace with the first durable project outcome"
+    outcome: "Repository bootstrap and application skeleton: a23font source layout, config, SQLite schema, security primitives (URL allowlist, SSRF guard, safe ids/filenames), FastAPI app with /health/live and /health/ready, offline green tests on dev host."
     acceptance:
-      A1: "Replace with an observable acceptance condition"
+      A1: "pytest suite for core app layer passes on dev host (config, security, db, services, health endpoints)"
+      A2: "FastAPI app serves GET /health/live and /health/ready with 200 in a local run"
+      A3: "requirements.txt and .env.example complete; no secrets staged in git"
     depends_on: []
+    accepted_ref: null
+  M2:
+    spec_rev: 1
+    outcome: "Production reachability: A23Font web container runs on the real A23 via Docker and https://font.esma.eu.org reaches it through the existing Cloudflare tunnel with HTTP 200 while all existing routes/services stay healthy."
+    acceptance:
+      A1: "docker compose stack (web+worker) up on A23 with persistent /data volume"
+      A2: "GET https://font.esma.eu.org/health/live returns 200 through Cloudflare"
+      A3: "Existing A23 services (ssh, tunnel, monitor, ddns) remain healthy during and after deploy"
+      A4: "Rollback demonstrated: stack down removes the service without residue"
+    depends_on: ["M1"]
+    accepted_ref: null
+  M3:
+    spec_rev: 1
+    outcome: "Reconstruction core correctness proven offline: geometry pass, bezier fitting, confidence checks, FontModel, TTF/OTF build and fonttools/harfbuzz/freetype validation pass on synthetic raster fixtures; cache identity/versioning/atomic-write/checkpoint logic unit-tested."
+    acceptance:
+      A1: "Synthetic-glyph rasters reconstruct to closed bezier contours passing confidence checks"
+      A2: "FontModel builds loadable TTF and OTF via fontTools; heavy validation passes on the built test font"
+      A3: "Cache identity/versioning, atomic writes, checkpoint/resume logic pass unit tests"
+    depends_on: ["M1"]
+    accepted_ref: null
+  M4:
+    spec_rev: 1
+    outcome: "MyFonts source adapter resolves real supported collection/family URLs into stable FontRequest/style lists with MD5 identities via live endpoints, with SSRF/allowlist rejection proven against invalid and hostile inputs."
+    acceptance:
+      A1: "One real supported collection URL resolves to at least one style with md5 identity"
+      A2: "Invalid, private-network, and non-myfonts URLs rejected with structured errors; covered by tests"
+      A3: "Discovery stop rules (empty result, repeated page signature, short final page) unit-tested"
+    depends_on: ["M1"]
+    accepted_ref: null
+  M5:
+    spec_rev: 1
+    outcome: "One real font style reconstructs and validates end-to-end on the A23; its TTF+OTF pass heavy validation."
+    acceptance:
+      A1: "Worker on A23 completes one real style: TTF+OTF produced, heavy validation PASS"
+      A2: "Job/status persisted in SQLite; worker restart during run resumes without losing frozen glyphs"
+      A3: "Resource observations (RSS, MemAvailable, duration) recorded in the job report"
+    depends_on: ["M2","M3","M4"]
+    accepted_ref: null
+  M6:
+    spec_rev: 1
+    outcome: "Multi-style collection works with partial-failure semantics: successful styles packaged, failures reported, DONE_WITH_ERRORS when applicable, ZIP with fonts/ + reports/ + manifest.json downloadable."
+    acceptance:
+      A1: "Real collection with >=2 styles completes; ZIP contains fonts for successful styles"
+      A2: "A forced single-style failure does not destroy completed styles; job ends DONE_WITH_ERRORS"
+      A3: "manifest.json and reports contain no secrets; filenames sanitized"
+    depends_on: ["M5"]
+    accepted_ref: null
+  M7:
+    spec_rev: 1
+    outcome: "Resilience proven: worker kill/restart resumes safely, container restart preserves state, cache reuse avoids reconstruction, cancellation works."
+    acceptance:
+      A1: "Kill worker mid-job; restart resumes from checkpoint without redoing frozen glyphs"
+      A2: "Container restart preserves jobs/db/cache; completed job still downloadable"
+      A3: "Repeat identical job hits cache and completes fast without re-reconstruction"
+      A4: "Cancel request stops work gracefully with terminal CANCELLED state"
+    depends_on: ["M5"]
+    accepted_ref: null
+  M8:
+    spec_rev: 1
+    outcome: "Resource safety on the A23: bounded memory/CPU during realistic workload, existing services healthy, browser/subprocess/tmp cleanup verified."
+    acceptance:
+      A1: "Benchmark run records peak RSS/MemAvailable/zRAM/CPU/thermal within safe bounds for the A23"
+      A2: "Existing services remain responsive during workload (ssh, tunnel health, monitor)"
+      A3: "No leaked chromium/subprocess/tmp artifacts after job completion or failure"
+    depends_on: ["M6"]
+    accepted_ref: null
+  M9:
+    spec_rev: 1
+    outcome: "Full production workflow verified at https://font.esma.eu.org plus operational deliverables: backup/restore/migration/rollback procedures, A23 benchmark results, scoped a23-server integration."
+    acceptance:
+      A1: "Complete E2E over https: submit URL, job created, reconstruct on A23, validate, ZIP downloaded"
+      A2: "Backup and restore of /data demonstrated; migration doc for generic ARM64/AMD64 Docker host"
+      A3: "a23-server integration (deploy/tunnel route docs and scripts) committed narrowly scoped"
+      A4: "Rollback procedure verified on A23"
+    depends_on: ["M7","M8"]
     accepted_ref: null
