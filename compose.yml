@@ -1,0 +1,19 @@
+services:
+  web:
+    build: .
+    image: a23font:v1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${A23FONT_HOST_PORT:-8090}:8090"
+    env_file: .env
+    volumes:
+      - a23font-data:/data
+  worker:
+    image: a23font:v1
+    command: ["python", "-m", "worker.main"]
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - a23font-data:/data
+volumes:
+  a23font-data: {}

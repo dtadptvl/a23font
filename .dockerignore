@@ -1,0 +1,16 @@
+.git
+.venv
+.prime
+.kilo
+.ai
+data
+tests
+docs
+*.md
+__pycache__
+*.py[cod]
+.pytest_cache
+.env
+*.env*
+a23font-cloudflare.env
+deploy
