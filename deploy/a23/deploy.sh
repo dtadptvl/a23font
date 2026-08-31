@@ -30,13 +30,13 @@ build() {
   if have_compose; then
     chroot_exec "cd /opt/a23font && docker compose --project-name ${PROJECT} build"
   else
-    # Device reality: the docker bridge netns has NO egress on this phone
-    # (Android netd blocks it), so classic builds fail apt/pip. BuildKit is
-    # built into dockerd 20.10 and --network=host runs RUN steps in the host
-    # netns, where DNS/egress work. Dockerfile.a23 is the device variant of the
-    # canonical /Dockerfile (adds IPv4 preference; IPv6 egress is blackholed
-    # on this phone). Canonical Dockerfile stays unchanged.
-    chroot_exec "cd /opt/a23font && DOCKER_BUILDKIT=1 docker build --network=host -f deploy/a23/Dockerfile.a23 -t a23font:v1 ."
+    # Device reality: bridge netns has no egress, and the mobile DNS flips
+    # between phases (A/AAAA alternately fail; IPv6 egress blackholed), so
+    # long docker-build RUN steps cannot complete reliably. Deterministic
+    # path: staged offline build (retryable downloads, offline assembly).
+    # Good-phase alternative: DOCKER_BUILDKIT=1 docker build --network=host
+    # -f deploy/a23/Dockerfile.a23 -t a23font:v1 . (see README).
+    sh "$(dirname "$0")/build-offline.sh"
   fi
 }
 

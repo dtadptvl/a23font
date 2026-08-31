@@ -56,6 +56,12 @@ builds with BuildKit (`DOCKER_BUILDKIT=1 docker build --network=host`)
 using `deploy/a23/Dockerfile.a23` (device variant of the canonical
 `/Dockerfile`: forces IPv4-first name resolution because IPv6 egress is
 blackholed on this phone; identical otherwise).
+
+Because the mobile network DNS flips between phases, the deterministic
+device build is `deploy/a23/build-offline.sh` (invoked by `deploy.sh
+build`): a retryable host-net download stage fetches the .debs and python
+wheels, then an offline stage installs them and `docker commit`s the image.
+The BuildKit command above remains the fast path during good DNS phases.
 The web app listens on `0.0.0.0:8090` of the phone; public reachability
 comes from the host-side cloudflared tunnel (Zero Trust ingress ->
 http://localhost:8090). In compose-capable environments the canonical
