@@ -21,12 +21,13 @@ milestones:
     depends_on: ["M1"]
     accepted_ref: "T-002"
   M3:
-    spec_rev: 1
-    outcome: "Reconstruction core correctness proven offline: geometry pass, bezier fitting, confidence checks, FontModel, TTF/OTF build and fonttools/harfbuzz/freetype validation pass on synthetic raster fixtures; cache identity/versioning/atomic-write/checkpoint logic unit-tested."
+    spec_rev: 2
+    outcome: "Reconstruction core correctness proven offline: geometry pass, bezier fitting, confidence checks, FontModel, TTF/OTF build and fonttools/harfbuzz/freetype validation pass on synthetic raster fixtures; glyph discovery stop rules, cache identity/versioning/atomic-write/checkpoint logic unit-tested."
     acceptance:
       A1: "Synthetic-glyph rasters reconstruct to closed bezier contours passing confidence checks"
       A2: "FontModel builds loadable TTF and OTF via fontTools; heavy validation passes on the built test font"
       A3: "Cache identity/versioning, atomic writes, checkpoint/resume logic pass unit tests"
+      A4: "Glyph discovery stop rules (empty result, repeated page signature, short final page, zero new glyphs) unit-tested"
     depends_on: ["M1"]
     accepted_ref: null
   M4:
@@ -37,7 +38,7 @@ milestones:
       A2: "Invalid, private-network, and non-myfonts URLs rejected with structured errors; covered by tests"
       A3: "Discovery stop rules (empty result, repeated page signature, short final page) unit-tested"
     depends_on: ["M1"]
-    accepted_ref: null
+    accepted_ref: "T-003"
   M5:
     spec_rev: 1
     outcome: "One real font style reconstructs and validates end-to-end on the A23; its TTF+OTF pass heavy validation."

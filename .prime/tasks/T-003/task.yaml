@@ -1,0 +1,28 @@
+id: "T-003"
+status: "accepted"
+governance_hash: "14cc1f827fb8762b"
+contract_rev: 1
+dispatch_id: 1
+validated_generation: 1
+objective_ref: "M4"
+objective_spec_rev: 1
+acceptance_refs: ["M4.A1","M4.A2","M4.A3"]
+scope:
+  include: ["pipeline/**","tests/**","app/**","requirements.txt"]
+  exclude: []
+depends_on:
+  decisions: []
+  tasks: ["T-001"]
+  milestones: ["M1"]
+recovery: "redo"
+extra_policies: []
+forbidden: [".prime/**",".kilo/**",".ai/**","templates/**","static/**","Dockerfile","compose.yml","deploy/**"]
+workspace:
+  base_commit: "0b89a83562b9ff3645d331383810f5af10c8e9d1"
+  protected_dirty_paths: []
+  protected_dirty_hash: "e3b0c44298fc1c14"
+liveness:
+  contract_rev: 1
+  same_boundary_failures: 0
+  last_failure_class: null
+  last_failure_boundary: null
