@@ -48,14 +48,16 @@ run_container() {
   _name="$1"
   shift
   _state=$(chroot_exec "docker inspect -f '{{.State.Running}}' ${_name} 2>/dev/null" || echo missing)
+  # docker inspect prints a bare newline on stdout for missing objects, so
+  # match with wildcards rather than exact strings.
   case "${_state}" in
-    missing|"")
+    *missing*|"")
       chroot_exec "docker run -d --name ${_name} --restart unless-stopped $*"
       ;;
-    false)
+    *false*)
       chroot_exec "docker start ${_name}"
       ;;
-    true)
+    *true*)
       echo "${_name} already running"
       ;;
   esac
