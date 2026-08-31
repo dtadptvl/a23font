@@ -77,6 +77,20 @@ sh /data/local/chroot/debian/opt/a23font/deploy/a23/deploy.sh down
 `a23font-data` volume, so data survives rollback. Bring the previous image
 back with `build` + `up` when ready.
 
+## Device quirks encoded in these scripts
+
+- chroot needs an absolute binary path: `chroot /data/local/chroot/debian /bin/sh -c ...`
+  (non-login shell; the chroot `/etc/profile` emits errors).
+- The docker bridge netns has no egress; run containers with `--network host`.
+- `docker exec` (and therefore docker HEALTHCHECK) does not join the
+  container mount namespace on this device - containers are started with
+  `--no-healthcheck`; liveness is observed via `/health/live` through the
+  tunnel instead.
+- Mobile-network DNS oscillates between bad phases; image builds use
+  `build-offline.sh` (scp-provisioned wheels/tini, offline assembly).
+- cloudflared tunnel ingress: the catch-all `http_status:404` route must stay
+  LAST; new hostname entries are inserted before it (see docs/DEPLOY_A23.md).
+
 ## Do not touch
 
 - Container `a23-cloudflare-ddns` (production DDNS updater).
