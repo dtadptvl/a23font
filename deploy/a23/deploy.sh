@@ -30,7 +30,8 @@ build() {
   if have_compose; then
     chroot_exec "cd /opt/a23font && docker compose --project-name ${PROJECT} build"
   else
-    chroot_exec "docker build -t a23font:v1 /opt/a23font"
+    # --network=host: build-container DNS cannot resolve upstreams on this device
+    chroot_exec "docker build --network=host -t a23font:v1 /opt/a23font"
   fi
 }
 
