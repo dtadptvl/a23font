@@ -65,6 +65,7 @@ cp -a /src/worker /app/worker
 cp -a /src/templates /app/templates
 cp -a /src/static /app/static
 cat > /app/healthcheck.py <<'HC'
+#!/usr/bin/env python3
 import sys, urllib.request
 try:
     r = urllib.request.urlopen("http://127.0.0.1:8090/health/live", timeout=4)
@@ -72,6 +73,7 @@ try:
 except Exception:
     sys.exit(1)
 HC
+chmod 755 /app/healthcheck.py
 echo BUILD_STAGE_OK
 MK
 }

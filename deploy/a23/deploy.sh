@@ -74,7 +74,7 @@ up() {
   run_container a23font-web \
     --env-file /opt/a23font/.env \
     --network host \
-    --health-cmd "python /app/healthcheck.py" \
+    --health-cmd=/app/healthcheck.py \
     --health-interval 30s --health-timeout 5s --health-start-period 15s --health-retries 3 \
     -v a23font-data:/data \
     a23font:v1
