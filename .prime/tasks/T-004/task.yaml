@@ -1,0 +1,28 @@
+id: "T-004"
+status: "accepted"
+governance_hash: "14cc1f827fb8762b"
+contract_rev: 2
+dispatch_id: 1
+validated_generation: 1
+objective_ref: "M3"
+objective_spec_rev: 2
+acceptance_refs: ["M3.A1","M3.A2"]
+scope:
+  include: ["pipeline/**","tests/**","requirements.txt"]
+  exclude: ["pipeline/source_myfonts.py"]
+depends_on:
+  decisions: []
+  tasks: ["T-003"]
+  milestones: ["M1","M4"]
+recovery: "redo"
+extra_policies: []
+forbidden: [".prime/**",".kilo/**",".ai/**","app/**","templates/**","static/**","deploy/**","Dockerfile","compose.yml"]
+workspace:
+  base_commit: "7b20b82fa7038d0b3d6ac4d97734c911480d7e81"
+  protected_dirty_paths: []
+  protected_dirty_hash: "e3b0c44298fc1c14"
+liveness:
+  contract_rev: 2
+  same_boundary_failures: 0
+  last_failure_class: null
+  last_failure_boundary: null

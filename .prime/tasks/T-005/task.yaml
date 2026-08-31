@@ -1,0 +1,28 @@
+﻿id: "T-005"
+status: "draft"
+governance_hash: ""
+contract_rev: 1
+dispatch_id: 0
+validated_generation: 1
+objective_ref: "M3"
+objective_spec_rev: 2
+acceptance_refs: ["M3.A1","M3.A2","M3.A3","M3.A4"]
+scope:
+  include: ["pipeline/**","tests/**"]
+  exclude: ["pipeline/source_myfonts.py","pipeline/geometry_core.py","pipeline/geometry_fit.py","pipeline/geometry_check.py","pipeline/build.py","pipeline/validate.py"]
+depends_on:
+  decisions: []
+  tasks: ["T-004"]
+  milestones: ["M1","M4"]
+recovery: "redo"
+extra_policies: []
+forbidden: [".prime/**",".kilo/**",".ai/**","app/**","templates/**","static/**","deploy/**","Dockerfile","compose.yml"]
+workspace:
+  base_commit: null
+  protected_dirty_paths: []
+  protected_dirty_hash: null
+liveness:
+  contract_rev: 1
+  same_boundary_failures: 0
+  last_failure_class: null
+  last_failure_boundary: null
