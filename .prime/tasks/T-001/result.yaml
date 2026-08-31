@@ -1,0 +1,10 @@
+task: "T-001"
+contract_rev: 1
+dispatch_id: 1
+status: "completed"
+proved: ["M1.A1","M1.A2","M1.A3"]
+changed: ["requirements.txt", "requirements-dev.txt", "pytest.ini", ".env.example", "app/__init__.py", "app/config.py", "app/ids.py", "app/security.py", "app/logging_conf.py", "app/db.py", "app/services.py", "app/web/__init__.py", "app/web/main.py", "app/web/run.py", "templates/base.html", "templates/home.html", "templates/job.html", "templates/ops.html", "templates/404.html", "templates/error.html", "static/app.css", "static/job.js", "tests/conftest.py", "tests/test_security.py", "tests/test_ids.py", "tests/test_db.py", "tests/test_services.py", "tests/test_web.py"]
+evidence: ["pytest: 42 passed", "health endpoints 200 on port 8123", "no secrets in files"]
+failure_class: null
+failure_boundary: null
+note: null

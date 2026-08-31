@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Start a reconstruction job</h2>
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+<form method="post" action="/jobs" class="panel">
+<label for="url">MyFonts collection or family URL</label>
+<input type="text" id="url" name="url" value="{{ url }}" size="60" required>
+<label class="check"><input type="checkbox" name="vietnamese" value="1"{% if vietnamese %} checked{% endif %}> Vietnamese glyph support</label>
+<button type="submit">Start</button>
+</form>
+{% endblock %}

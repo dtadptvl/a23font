@@ -1,0 +1,158 @@
+:root {
+  --accent: #14532d;
+  --accent-soft: #d1fae5;
+  --bg: #f6f7f5;
+  --panel: #ffffff;
+  --border: #e5e7eb;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --danger: #b91c1c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background: var(--accent);
+}
+
+.site-header .brand {
+  color: #ffffff;
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-header nav a {
+  color: var(--accent-soft);
+  text-decoration: none;
+  margin-left: 1rem;
+}
+
+main {
+  max-width: 62rem;
+  margin: 1.5rem auto 3rem;
+  padding: 0 1rem;
+}
+
+.site-footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 1.5rem 0 2rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+label {
+  display: block;
+  margin: 0.6rem 0 0.25rem;
+  font-weight: 600;
+}
+
+label.check {
+  font-weight: 400;
+}
+
+input[type="text"] {
+  width: 100%;
+  max-width: 40rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+
+button {
+  margin-top: 0.75rem;
+  padding: 0.5rem 1.4rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+a.button {
+  display: inline-block;
+  padding: 0.5rem 1.4rem;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+}
+
+th, td {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  padding: 0.45rem 0.6rem;
+  font-size: 0.92rem;
+  vertical-align: top;
+}
+
+th {
+  background: #f9fafb;
+}
+
+dl {
+  margin: 0 0 0.75rem;
+}
+
+dl div {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.15rem 0;
+}
+
+dt {
+  font-weight: 600;
+  min-width: 8rem;
+}
+
+dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+a {
+  color: var(--accent);
+}

@@ -1,0 +1,28 @@
+id: "T-001"
+status: "accepted"
+governance_hash: "14cc1f827fb8762b"
+contract_rev: 1
+dispatch_id: 1
+validated_generation: 1
+objective_ref: "M1"
+objective_spec_rev: 1
+acceptance_refs: ["M1.A1","M1.A2","M1.A3"]
+scope:
+  include: ["app/**","tests/**","templates/**","static/**","requirements.txt","requirements-dev.txt",".env.example","pytest.ini"]
+  exclude: []
+depends_on:
+  decisions: []
+  tasks: []
+  milestones: []
+recovery: "redo"
+extra_policies: []
+forbidden: [".prime/**",".kilo/**",".ai/**","fast15.md","core.md","README.md"]
+workspace:
+  base_commit: "867dac0e04a594ad8c1e46af2dd429178a93b7c2"
+  protected_dirty_paths: []
+  protected_dirty_hash: "e3b0c44298fc1c14"
+liveness:
+  contract_rev: 1
+  same_boundary_failures: 0
+  last_failure_class: null
+  last_failure_boundary: null

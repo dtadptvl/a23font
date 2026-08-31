@@ -9,7 +9,7 @@ milestones:
       A2: "FastAPI app serves GET /health/live and /health/ready with 200 in a local run"
       A3: "requirements.txt and .env.example complete; no secrets staged in git"
     depends_on: []
-    accepted_ref: null
+    accepted_ref: "T-001"
   M2:
     spec_rev: 1
     outcome: "Production reachability: A23Font web container runs on the real A23 via Docker and https://font.esma.eu.org reaches it through the existing Cloudflare tunnel with HTTP 200 while all existing routes/services stay healthy."

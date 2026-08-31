@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Ops - A23Font{% endblock %}
+{% block content %}
+<h2>Ops</h2>
+<section class="panel">
+<h3>Data root: {{ data_root }}</h3>
+<table>
+<thead><tr><th>Metric</th><th>Bytes</th></tr></thead>
+<tbody>
+<tr><td>Disk total</td><td>{{ disk.total }}</td></tr>
+<tr><td>Disk used</td><td>{{ disk.used }}</td></tr>
+<tr><td>Disk free</td><td>{{ disk.free }}</td></tr>
+{% for name, size in sizes.items() %}
+<tr><td>Directory {{ name }}</td><td>{{ size }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</section>
+<section class="panel">
+<h3>Jobs by status</h3>
+<table>
+<thead><tr><th>Status</th><th>Count</th></tr></thead>
+<tbody>
+{% for status in statuses %}
+<tr><td>{{ status }}</td><td>{{ counts.get(status, 0) }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</section>
+<section class="panel">
+<h3>Recent jobs</h3>
+<table>
+<thead><tr><th>ID</th><th>Status</th><th>Stage</th><th>Created</th><th>Source</th></tr></thead>
+<tbody>
+{% for job in recent %}
+<tr>
+<td><a href="/jobs/{{ job['id'] }}">{{ job["id"] }}</a></td>
+<td>{{ job["status"] }}</td>
+<td>{{ job["stage"] or "-" }}</td>
+<td>{{ job["created_at"] }}</td>
+<td>{{ job["source_url"] }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</section>
+{% endblock %}

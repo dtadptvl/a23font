@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job["id"] }} - A23Font{% endblock %}
+{% block head_extra %}
+{% if not job["terminal"] %}
+<meta http-equiv="refresh" content="10">
+{% endif %}
+{% endblock %}
+{% block content %}
+<h2>Job {{ job["id"] }}</h2>
+<section class="panel">
+<dl>
+<div><dt>Source</dt><dd>{{ job["source_url"] }}</dd></div>
+<div><dt>Normalized</dt><dd>{{ job["normalized_url"] }}</dd></div>
+<div><dt>Status</dt><dd id="job-status">{{ job["status"] }}</dd></div>
+<div><dt>Stage</dt><dd id="job-stage">{{ job["stage"] or "-" }}</dd></div>
+<div><dt>Styles</dt><dd><span id="styles-done">{{ job["styles_done"] }}</span> / <span id="styles-total">{{ job["styles_total"] }}</span> done, <span id="styles-failed">{{ job["styles_failed"] }}</span> failed</dd></div>
+{% if job["error_code"] or job["error_message"] %}
+<div><dt>Error</dt><dd>{{ job["error_code"] or "" }} {{ job["error_message"] or "" }}</dd></div>
+{% endif %}
+</dl>
+{% if not job["terminal"] %}
+<form method="post" action="/jobs/{{ job['id'] }}/cancel">
+<button type="submit" class="danger">Cancel</button>
+</form>
+{% endif %}
+{% if download_ready %}
+<p><a class="button" href="/jobs/{{ job['id'] }}/download">Download result</a></p>
+{% endif %}
+</section>
+<section class="panel">
+<h3>Styles</h3>
+<table id="style-table">
+<thead>
+<tr><th>Name</th><th>Status</th><th>Error</th><th>Cache</th></tr>
+</thead>
+<tbody>
+{% for style in styles %}
+<tr data-name="{{ style['name'] }}">
+<td>{{ style["name"] }}</td>
+<td class="style-status">{{ style["status"] }}</td>
+<td class="style-error">{{ style["error_message"] or "" }}</td>
+<td class="style-cache">{{ "yes" if style["cache_hit"] else "no" }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</section>
+<script src="/static/job.js" data-status-url="/jobs/{{ job['id'] }}/status"></script>
+{% endblock %}
