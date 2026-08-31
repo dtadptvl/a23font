@@ -18,7 +18,10 @@ HOST_PORT="${A23FONT_HOST_PORT:-8090}"
 
 chroot_exec() {
   # Note: this device's chroot needs an absolute binary path (/bin/sh).
-  chroot "$CHROOT_DIR" /bin/sh -lc "$1"
+  # Non-login shell with explicit PATH: the chroot /etc/profile errors on
+  # this device ("id: not found"), and that stderr noise would corrupt
+  # command-substitution captures (e.g. run_container state detection).
+  chroot "$CHROOT_DIR" /bin/sh -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; $1"
 }
 
 have_compose() {
@@ -46,7 +49,7 @@ run_container() {
   shift
   _state=$(chroot_exec "docker inspect -f '{{.State.Running}}' ${_name} 2>/dev/null" || echo missing)
   case "${_state}" in
-    missing)
+    missing|"")
       chroot_exec "docker run -d --name ${_name} --restart unless-stopped $*"
       ;;
     false)
