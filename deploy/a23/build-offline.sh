@@ -25,10 +25,23 @@ write_inner_scripts() {
   cat > "$CHROOT_DIR/tmp/a23dl.sh" <<'DL'
 set -e
 printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
-apt-get update
-apt-get install -y --no-install-recommends --download-only -o Dir::Cache::archives=/cache/debs curl tini
-ls /cache/debs/*.deb
-pip download -d /cache/wheels -r /src/requirements.txt
+export DEBIAN_FRONTEND=noninteractive
+# Resumable: each sub-step persists its artifacts + marker across attempts,
+# so a flaky-DNS retry only needs one short good window per sub-step.
+mkdir -p /var/lib/apt/lists/partial
+if [ ! -f /cache/lists.done ]; then
+  apt-get update
+  touch /cache/lists.done
+fi
+if [ ! -f /cache/debs.done ]; then
+  apt-get install -y --no-install-recommends --download-only -o Dir::Cache::archives=/cache/debs curl tini
+  ls /cache/debs/*.deb >/dev/null
+  touch /cache/debs.done
+fi
+if [ ! -f /cache/wheels.done ]; then
+  pip download -d /cache/wheels -r /src/requirements.txt
+  touch /cache/wheels.done
+fi
 echo DOWNLOAD_STAGE_OK
 DL
   cat > "$CHROOT_DIR/tmp/a23mk.sh" <<'MK'
@@ -48,8 +61,8 @@ MK
 
 download_stage() {
   # Retryable: only this stage needs working DNS (host netns).
-  chroot_exec "mkdir -p $CACHE/debs $CACHE/wheels && docker run --rm --network host \
-    -v $CACHE:/cache -v $SRC:/src:ro -v /tmp/a23dl.sh:/dl.sh:ro \
+  chroot_exec "mkdir -p $CACHE/debs $CACHE/wheels $CACHE/aptlists/partial && docker run --rm --network host \
+    -v $CACHE:/cache -v $CACHE/aptlists:/var/lib/apt/lists -v $SRC:/src:ro -v /tmp/a23dl.sh:/dl.sh:ro \
     $BASE sh /dl.sh"
 }
 
@@ -73,7 +86,7 @@ build_stage() {
 
 write_inner_scripts
 
-attempts="${A23FONT_BUILD_ATTEMPTS:-8}"
+attempts="${A23FONT_BUILD_ATTEMPTS:-25}"
 i=0
 until [ "$i" -ge "$attempts" ]; do
   i=$((i + 1))
