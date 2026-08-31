@@ -52,7 +52,10 @@ with containers named `a23font-web` and `a23font-worker`.
 Networking: this phone's docker bridge netns has no egress (Android netd
 blocks it), so on this device `deploy.sh` runs everything with
 `--network host` (same as the existing a23-cloudflare-ddns container) and
-builds with BuildKit (`DOCKER_BUILDKIT=1 docker build --network=host`).
+builds with BuildKit (`DOCKER_BUILDKIT=1 docker build --network=host`)
+using `deploy/a23/Dockerfile.a23` (device variant of the canonical
+`/Dockerfile`: forces IPv4-first name resolution because IPv6 egress is
+blackholed on this phone; identical otherwise).
 The web app listens on `0.0.0.0:8090` of the phone; public reachability
 comes from the host-side cloudflared tunnel (Zero Trust ingress ->
 http://localhost:8090). In compose-capable environments the canonical

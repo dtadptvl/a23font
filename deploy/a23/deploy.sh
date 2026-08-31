@@ -33,8 +33,10 @@ build() {
     # Device reality: the docker bridge netns has NO egress on this phone
     # (Android netd blocks it), so classic builds fail apt/pip. BuildKit is
     # built into dockerd 20.10 and --network=host runs RUN steps in the host
-    # netns, where DNS/egress work. Canonical Dockerfile stays unchanged.
-    chroot_exec "cd /opt/a23font && DOCKER_BUILDKIT=1 docker build --network=host -t a23font:v1 ."
+    # netns, where DNS/egress work. Dockerfile.a23 is the device variant of the
+    # canonical /Dockerfile (adds IPv4 preference; IPv6 egress is blackholed
+    # on this phone). Canonical Dockerfile stays unchanged.
+    chroot_exec "cd /opt/a23font && DOCKER_BUILDKIT=1 docker build --network=host -f deploy/a23/Dockerfile.a23 -t a23font:v1 ."
   fi
 }
 
