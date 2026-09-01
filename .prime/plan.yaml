@@ -56,7 +56,7 @@ milestones:
       A2: "A forced single-style failure does not destroy completed styles; job ends DONE_WITH_ERRORS"
       A3: "manifest.json and reports contain no secrets; filenames sanitized"
     depends_on: ["M5"]
-    accepted_ref: null
+    accepted_ref: "T-008"
   M7:
     spec_rev: 1
     outcome: "Resilience proven: worker kill/restart resumes safely, container restart preserves state, cache reuse avoids reconstruction, cancellation works."
