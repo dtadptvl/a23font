@@ -194,3 +194,47 @@ def test_vietnamese_option_raises_honest_pending_error(tmp_path):
                 ctx, IDENTITY, {"vietnamese": True}, "TestFamily", "Regular", manifest, metrics
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# T-007 live failure class: hollow fonts must never be served as success
+# ---------------------------------------------------------------------------
+
+def test_zero_usable_observations_fails_honest_no_glyphs_frozen(tmp_path):
+    provider = SyntheticRasterProvider({})  # no shapes: every acquire "missing"
+    ctx = make_ctx(tmp_path, provider)
+    manifest = make_manifest()
+    metrics = estimate_from_manifest(manifest, {})
+    res = asyncio.run(
+        reconstruct_style(ctx, IDENTITY, OPTIONS, "Fam", "Regular", manifest, metrics)
+    )
+    assert res.ok is False
+    assert res.error == "NO_GLYPHS_FROZEN"
+    assert res.glyphs_frozen == 0
+    assert res.glyphs_total == 3
+    assert res.ttf is None and res.otf is None
+    # entry was invalidated, not left as a reusable success
+    assert ctx.cache.lookup(IDENTITY, OPTIONS).status == "miss"
+
+
+def test_hollow_binary_cache_entry_is_invalidated_not_served(tmp_path):
+    # fabricate a hollow "binary" entry: success ledger + final bytes but zero
+    # frozen glyphs (exactly what the T-007 identity bug produced live)
+    cache = CacheStore(tmp_path / "cache", "1")
+    entry = cache.begin(IDENTITY, OPTIONS, {"family": "Fam", "style": "Regular"})
+    cache.checkpoint_glyphs(entry, [], "hollow")
+    cache.save_final(entry, b"\x00\x01", b"\x00\x01", {"passed": True})
+    probe = cache.lookup(IDENTITY, OPTIONS)
+    assert probe.status == "binary" and probe.frozen_glyphs == 0
+
+    provider = SyntheticRasterProvider(SHAPES)
+    ctx = make_ctx(tmp_path, provider)
+    manifest = make_manifest()
+    metrics = estimate_from_manifest(manifest, {})
+    res = asyncio.run(
+        reconstruct_style(ctx, IDENTITY, OPTIONS, "Fam", "Regular", manifest, metrics)
+    )
+    assert res.ok, res.error
+    assert res.cache_hit is None  # hollow hit invalidated -> real rebuild
+    assert res.glyphs_frozen == 3
+    assert res.validation["passed"] is True

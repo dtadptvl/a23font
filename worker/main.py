@@ -340,9 +340,12 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                 stage_cb=stage_cb,
                 budget_deadline=time.monotonic() + budget_s,
             )
+            # The raster endpoint requires the raw 32-hex md5; the "md5:"-
+            # prefixed stable_id 404s at sig.monotype.com (found live in
+            # T-007). Cache identity is the raw md5 as well.
             res = await reconstruct_style(
                 octx,
-                style_ref.identity.stable_id,
+                md5,
                 {"vietnamese": vietnamese},
                 request.family_name,
                 style_ref.name,

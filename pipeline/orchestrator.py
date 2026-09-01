@@ -148,6 +148,11 @@ def _fontmodel_result(
     if not data:
         return None
     model = FontModel.from_dict(data)
+    if not any(glyph.status == "RECONSTRUCTED" for glyph in model.glyphs.values()):
+        ctx.cache.invalidate(
+            lookup.dir, "fontmodel entry with zero reconstructed glyphs"
+        )
+        return None
     with tempfile.TemporaryDirectory(prefix="a23font_fm_") as tmp:
         ttf_path = str(Path(tmp) / "probe.ttf")
         otf_path = str(Path(tmp) / "probe.otf")
@@ -254,8 +259,16 @@ async def reconstruct_style(
 
     lookup = ctx.cache.lookup(style_identity, options)
     if lookup.status == "binary":
-        LOGGER.info("cache hit (binary) for %s", style_identity)
-        return _binary_result(lookup, t0)
+        if lookup.frozen_glyphs > 0:
+            LOGGER.info("cache hit (binary) for %s", style_identity)
+            return _binary_result(lookup, t0)
+        # Hollow entry (zero frozen glyphs) must never be served as success.
+        LOGGER.warning(
+            "binary cache entry for %s has zero frozen glyphs; invalidating",
+            style_identity,
+        )
+        ctx.cache.invalidate(lookup.dir, "binary entry with zero frozen glyphs")
+        lookup = ctx.cache.lookup(style_identity, options)
 
     if bool(options.get("vietnamese")):
         raise PipelineNotImplementedError("vietnamese extension milestone pending")
@@ -430,6 +443,29 @@ async def reconstruct_style(
     model.features = {}
 
     checkpoint("reconstruction complete")
+
+    if not frozen_dicts:
+        # Honesty guard (T-007): zero frozen glyphs means every observation
+        # was unusable (e.g. raster fetches 404). Heavy validation would
+        # trivially pass a .notdef+space-only font, so fail the style.
+        ctx.cache.invalidate(entry_dir, "no glyphs frozen: all observations unusable")
+        return StyleResult(
+            ok=False,
+            cache_hit=None,
+            glyphs_total=len(entries),
+            glyphs_frozen=0,
+            glyphs_failed=len(failed),
+            failed_glyphs=sorted(failed),
+            ttf=None,
+            otf=None,
+            validation={},
+            report=_style_report(
+                family, style_name, style_identity, entries, frozen_dicts, failed,
+                pass_counts, budget_exceeded, metrics, lookup.status, _NOTDEF_NOTE, level_log,
+            ),
+            duration_s=_result_duration(t0),
+            error="NO_GLYPHS_FROZEN",
+        )
 
     # VALIDATION (heavy route runs ONCE) --------------------------------------
     _emit(ctx, "VALIDATING", {"event": "validation_start", "frozen": len(frozen_dicts)})
