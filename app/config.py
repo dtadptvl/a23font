@@ -55,6 +55,10 @@ class Config:
     max_active_collections: int = 1
     log_level: str = "INFO"
     pipeline_version: str = "1"
+    # M5 network gate: live myfonts/raster pipeline traffic is disabled off-A23
+    # in this milestone; T-007 enables it on the real A23.
+    pipeline_live: bool = False
+    extra_source_hosts: str = ""
 
     def __post_init__(self) -> None:
         self.data_root = Path(self.data_root)
@@ -115,6 +119,8 @@ class Config:
             max_active_collections=number("A23FONT_MAX_ACTIVE_COLLECTIONS", 1),
             log_level=text("A23FONT_LOG_LEVEL", "INFO"),
             pipeline_version=text("A23FONT_PIPELINE_VERSION", "1"),
+            pipeline_live=flag("A23FONT_PIPELINE_LIVE", False),
+            extra_source_hosts=text("A23FONT_EXTRA_SOURCE_HOSTS", ""),
         )
 
 

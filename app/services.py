@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from .config import Config
@@ -15,12 +16,17 @@ JOB_STATUSES = [
     "PACKAGING", "DONE", "DONE_WITH_ERRORS", "FAILED", "CANCELLED",
 ]
 TERMINAL = {"DONE", "DONE_WITH_ERRORS", "FAILED", "CANCELLED"}
+ACTIVE_STAGES = ("RESOLVING", "DISCOVERING", "RECONSTRUCTING", "VALIDATING", "PACKAGING")
+STYLE_ACTIVE = ("RECONSTRUCTING", "VALIDATING", "PACKAGING")
+STYLE_TERMINAL_DONE = "DONE"
+STYLE_TERMINAL_FAILED = "FAILED"
 _JOB_COLUMNS = frozenset({
     "source_url", "normalized_url", "options_json", "status", "stage",
     "error_code", "error_message", "collection_name", "styles_total",
     "styles_done", "styles_failed", "cancel_requested", "worker_id",
     "attempts", "zip_name", "zip_size", "report_json",
     "created_at", "updated_at", "started_at", "finished_at",
+    "worker_heartbeat",
 })
 
 
@@ -165,4 +171,180 @@ def add_event(conn: sqlite3.Connection, job_id: str, event: str, detail: Optiona
         "INSERT INTO job_events (job_id, ts, event, detail_json) VALUES (?, ?, ?, ?)",
         (job_id, utcnow_iso(), event, detail_json),
     )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# M5: style rows, heartbeats, stale requeue, report persistence
+# ---------------------------------------------------------------------------
+
+def register_styles(
+    conn: sqlite3.Connection, job_id: str, styles: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Register style rows for a job (restart-safe / idempotent).
+
+    Each style dict may carry name, md5, source_identity. When rows already
+    exist for the job (worker restart after a claim) they are preserved, so
+    style history is never lost or duplicated; styles_total is synced to the
+    row count either way. Returns the style rows ordered by position.
+    """
+    job = get_job(conn, job_id)
+    if job is None:
+        raise NotFoundError(job_id)
+    existing = conn.execute(
+        "SELECT COUNT(*) AS n FROM style_jobs WHERE job_id = ?", (job_id,)
+    ).fetchone()["n"]
+    if existing == 0:
+        for position, style in enumerate(styles, start=1):
+            style = style or {}
+            conn.execute(
+                "INSERT INTO style_jobs (job_id, position, name, source_identity, md5, status)"
+                " VALUES (?, ?, ?, ?, ?, 'QUEUED')",
+                (
+                    job_id,
+                    position,
+                    str(style.get("name") or f"Style {position}"),
+                    style.get("source_identity"),
+                    style.get("md5"),
+                ),
+            )
+    conn.execute(
+        "UPDATE jobs SET styles_total = (SELECT COUNT(*) FROM style_jobs WHERE job_id = ?),"
+        " updated_at = ? WHERE id = ?",
+        (job_id, utcnow_iso(), job_id),
+    )
+    conn.commit()
+    rows = conn.execute(
+        "SELECT * FROM style_jobs WHERE job_id = ? ORDER BY position ASC, id ASC", (job_id,)
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def set_style_status(
+    conn: sqlite3.Connection,
+    style_job_id: int,
+    status: str,
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
+    cache_hit: bool = False,
+    duration_ms: Optional[int] = None,
+    report_json: Optional[Any] = None,
+) -> None:
+    """Update one style row and recompute the parent job counters."""
+    row = conn.execute(
+        "SELECT * FROM style_jobs WHERE id = ?", (style_job_id,)
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(str(style_job_id))
+    now = utcnow_iso()
+    assignments: Dict[str, Any] = {"status": status, "cache_hit": 1 if cache_hit else 0}
+    if error_code is not None:
+        assignments["error_code"] = error_code
+    if error_message is not None:
+        assignments["error_message"] = error_message
+    if duration_ms is not None:
+        assignments["duration_ms"] = int(duration_ms)
+    if report_json is not None:
+        assignments["report_json"] = (
+            report_json if isinstance(report_json, str) else json.dumps(report_json)
+        )
+    if status in STYLE_ACTIVE and row["started_at"] is None:
+        assignments["started_at"] = now
+    if status in (STYLE_TERMINAL_DONE, STYLE_TERMINAL_FAILED):
+        assignments["finished_at"] = now
+        if row["started_at"] is None:
+            assignments["started_at"] = now
+    columns = ", ".join(f"{key} = ?" for key in assignments)
+    params = list(assignments.values()) + [style_job_id]
+    conn.execute(f"UPDATE style_jobs SET {columns} WHERE id = ?", params)
+    conn.execute(
+        "UPDATE jobs SET"
+        " styles_done = (SELECT COUNT(*) FROM style_jobs WHERE job_id = ? AND status = 'DONE'),"
+        " styles_failed = (SELECT COUNT(*) FROM style_jobs WHERE job_id = ? AND status = 'FAILED'),"
+        " updated_at = ? WHERE id = ?",
+        (row["job_id"], row["job_id"], now, row["job_id"]),
+    )
+    conn.commit()
+
+
+def touch_heartbeat(conn: sqlite3.Connection, job_id: str, worker_id: str) -> None:
+    """Record worker liveness for a claimed job."""
+    now = utcnow_iso()
+    cursor = conn.execute(
+        "UPDATE jobs SET worker_heartbeat = ?, worker_id = ?, updated_at = ? WHERE id = ?",
+        (now, worker_id, now, job_id),
+    )
+    if cursor.rowcount == 0:
+        raise NotFoundError(job_id)
+    conn.commit()
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def requeue_stale_jobs(
+    conn: sqlite3.Connection, worker_id: str, stale_after_s: int = 90
+) -> int:
+    """Requeue active jobs whose worker looks dead. Returns the count.
+
+    Stale means: worker_heartbeat older than the cutoff, an unparseable
+    heartbeat, or no heartbeat at all while owned by a different worker
+    (pre-heartbeat claim from an older build / crashed claim). Jobs owned by
+    the CURRENT worker without a heartbeat are left alone (fresh claim).
+    Requeued jobs go back to QUEUED with stage NULL, attempts+1, worker
+    cleared, and one "requeued_stale" audit event.
+    """
+    now_dt = datetime.now(timezone.utc)
+    cutoff = now_dt - timedelta(seconds=int(stale_after_s))
+    placeholders = ", ".join("?" for _ in ACTIVE_STAGES)
+    rows = conn.execute(
+        f"SELECT id, worker_id, worker_heartbeat FROM jobs WHERE status IN ({placeholders})",
+        ACTIVE_STAGES,
+    ).fetchall()
+    requeued = 0
+    for row in rows:
+        heartbeat = _parse_ts(row["worker_heartbeat"])
+        if row["worker_heartbeat"] and heartbeat is None:
+            stale = True  # unparseable heartbeat -> treat as stale
+        elif heartbeat is not None:
+            stale = heartbeat <= cutoff
+        else:
+            stale = row["worker_id"] != worker_id
+        if not stale:
+            continue
+        now = utcnow_iso()
+        conn.execute(
+            "UPDATE jobs SET status = 'QUEUED', stage = NULL, worker_id = NULL,"
+            " worker_heartbeat = NULL, attempts = attempts + 1, updated_at = ?"
+            " WHERE id = ?",
+            (now, row["id"]),
+        )
+        conn.commit()
+        add_event(
+            conn,
+            row["id"],
+            "requeued_stale",
+            {"previous_worker": row["worker_id"], "requeued_by": worker_id},
+        )
+        requeued += 1
+    return requeued
+
+
+def set_job_report(conn: sqlite3.Connection, job_id: str, report: Dict[str, Any]) -> None:
+    """Persist the job report JSON (resources, per-style summaries)."""
+    cursor = conn.execute(
+        "UPDATE jobs SET report_json = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(report), utcnow_iso(), job_id),
+    )
+    if cursor.rowcount == 0:
+        raise NotFoundError(job_id)
     conn.commit()

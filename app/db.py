@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     started_at TEXT,
-    finished_at TEXT
+    finished_at TEXT,
+    worker_heartbeat TEXT
 );
 CREATE TABLE IF NOT EXISTS style_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +70,14 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent forward migrations for databases created by older builds."""
+    # v2: worker liveness tracking (stale-job requeue, restart resume proofs)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    if "worker_heartbeat" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN worker_heartbeat TEXT")
+
+
 def open_db(path: Path) -> sqlite3.Connection:
     """Open (and if needed initialize) the SQLite database."""
     db_path = Path(path)
@@ -80,6 +89,7 @@ def open_db(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
