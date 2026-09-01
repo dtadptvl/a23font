@@ -1,0 +1,28 @@
+id: "T-007"
+status: "accepted"
+governance_hash: "14cc1f827fb8762b"
+contract_rev: 1
+dispatch_id: 1
+validated_generation: 1
+objective_ref: "M5"
+objective_spec_rev: 1
+acceptance_refs: ["M5.A1","M5.A2","M5.A3"]
+scope:
+  include: ["app/**","pipeline/**","worker/**","tests/**","deploy/**","docs/**",".env.example"]
+  exclude: ["pipeline/geometry_core.py","pipeline/geometry_fit.py","pipeline/geometry_check.py","pipeline/build.py","pipeline/validate.py"]
+depends_on:
+  decisions: []
+  tasks: ["T-006"]
+  milestones: ["M2","M3","M4"]
+recovery: "resume"
+extra_policies: ["safety.md"]
+forbidden: [".prime/**",".kilo/**",".ai/**","templates/**","static/**","Dockerfile","compose.yml"]
+workspace:
+  base_commit: "1ce0620482fbb195950b8f7d23dd0fa774e563d6"
+  protected_dirty_paths: []
+  protected_dirty_hash: "e3b0c44298fc1c14"
+liveness:
+  contract_rev: 1
+  same_boundary_failures: 0
+  last_failure_class: null
+  last_failure_boundary: null

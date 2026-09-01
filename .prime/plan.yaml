@@ -47,7 +47,7 @@ milestones:
       A2: "Job/status persisted in SQLite; worker restart during run resumes without losing frozen glyphs"
       A3: "Resource observations (RSS, MemAvailable, duration) recorded in the job report"
     depends_on: ["M2","M3","M4"]
-    accepted_ref: null
+    accepted_ref: "T-007"
   M6:
     spec_rev: 1
     outcome: "Multi-style collection works with partial-failure semantics: successful styles packaged, failures reported, DONE_WITH_ERRORS when applicable, ZIP with fonts/ + reports/ + manifest.json downloadable."
