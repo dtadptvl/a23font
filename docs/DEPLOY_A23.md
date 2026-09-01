@@ -171,3 +171,79 @@ throughout; existing services (tunnel, ddns, monitor) healthy.
   mid-job and cache reuse on repeat runs.
 - A23FONT_EXTRA_SOURCE_HOSTS left empty: no raster CDN redirects observed from
   the phone (all fetches answered directly by sig.monotype.com).
+
+## Collection run + packaging (T-008, M6) - 2026-09-01 UTC
+
+First live multi-style collection job with partial-failure semantics and ZIP
+packaging on the real A23: image `a23font:v3` (built via the proven offline
+assembly), `A23FONT_PIPELINE_LIVE=true`, new knob `A23FONT_MAX_STYLES=4`
+bounding the 11-style collection to its first 4 styles. Code at `ccb8cff`.
+Proves M6.A1 (multi-style collection run + ZIP) and M6.A3 (no-secrets/
+sanitized-name packaging) live; M6.A2 (partial-failure isolation) had no
+natural live failure to capture - it is proven offline via the forced-failure
+flow test (see below), honestly noted.
+
+| Item | Value |
+| --- | --- |
+| Run window | submitted 2026-09-01T02:01:06Z; job started 02:01:12Z, finished 02:15:41Z (duration_s 868.9), T-008 r1 d1 |
+| Image | a23font:v3 sha256:bf5e3fad61ac880598d3373aef6087166c5eff99790947849222e3492c6b9321 (rollback: a23font:v2 670817787994 / v1 08f82423b961 kept) |
+| Source URL | https://www.myfonts.com/collections/postamp-grotesk-font-fontfabric (resolves 11 styles) |
+| Truncation | `styles_truncated` audit event: {"note":"styles truncated","available":11,"kept":4,"max_styles":4} |
+| Job | J-CsXJZDX4yEs-3KeV, worker w-a0be142f70, final status DONE (styles_done 4 / styles_failed 0) |
+| ZIP | J-CsXJZDX4yEs-3KeV.zip, 178145 B, sha256 7f9f2691d6ef13274d13ed5321321cb2b890d80f0ad2d037430620da861d005e, 13 entries |
+| Download | GET https://font.esma.eu.org/jobs/J-CsXJZDX4yEs-3KeV/download -> HTTP 200 application/zip, Content-Disposition attachment; downloaded bytes sha256 == job row zip_sha256 |
+
+### M6.A1 evidence - collection run + cache reuse timings
+
+Styles run sequentially; the two styles already cached by T-007 were served
+from the binary cache (proof of cache reuse inside a live collection run):
+
+| # | Style | md5 | Outcome | duration_ms | vs T-007 fresh | glyphs frozen |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Postamp Grotesk Variable Regular | 3452d65020a1476ec13080d7216186db | DONE cache_hit | 504 | 504171 (~1000x) | 296 |
+| 2 | Postamp Grotesk Thin | 213c3759d29b3c451838f2973edd76ff | DONE cache_hit | 343 | 515351 (~1500x) | 296 |
+| 3 | Postamp Grotesk Thin Mix | fd500acb661be3e2175feeb0f5f3cf39 | DONE fresh | 295160 | - | 296 (86 failed) |
+| 4 | Postamp Grotesk Light | 124d11d161647a80246a4ab298eb84a8 | DONE fresh | 571574 | - | 347 (35 failed) |
+
+Cache-hit binaries are byte-identical to the T-007 artifacts (zip manifest
+ttf/otf sha256 match: 4b140b78074dfaf3.../a9790437cc50c25a... and
+ba8bdc247f439cb9.../2e7320a19ccd82aa...). Resources: max_rss_kb 316788,
+mem_available_kb 2150024, platform Linux.
+
+### ZIP layout (mandate) + M6.A3 evidence
+
+`fonts/` 8 entries (ttf+otf per DONE style, all > 20 KB hollow guard):
+Light 62596/41460 B, Thin Mix 50364/34276 B, Thin 53200/36568 B, Variable
+Regular 53272/36992 B. `reports/` 4 report.json (one per style: glyph
+counts, validation summary, duration_s, cache_hit). `manifest.json`: service
+a23font, schema 1, normalized source_url, options.vietnamese false,
+collection_name Postamp-Grotesk, styles_total/done/failed 4/4/0,
+validation_summary {done:4, failed:0}, per-style md5 + ttf/otf sha256 +
+byte sizes, notes []. Secret sweep over every JSON in the archive found
+NO substring of token/cookie/secret/password/authorization/bearer.
+Offline M6.A3 proof tests (suite 173 passed):
+`tests/test_pack.py::test_manifest_and_reports_redact_secret_keys` and
+`tests/test_pack.py::test_safe_component_ascii_no_separators_and_dedupe`.
+M6.A2 offline proof: `tests/test_collection_flow.py::test_partial_failure_isolation_and_zip`
+(A23FONT_FORCE_FAIL_STYLES hook forces style #2 FAILED/FORCED_TEST_FAILURE;
+job DONE_WITH_ERRORS; zip fonts/ only styles 1+3, reports all 3), plus
+`test_all_styles_failed_means_failed_job_without_zip` (no zip for zero
+successes) and `test_cancel_between_styles_cancels_without_zip`.
+
+### Regression after the run (2026-09-01 ~02:20 UTC)
+
+- tunnel status.sh: "Cloudflare Tunnel is healthy (PID 6838, 4 ready
+  connections expected)." (same PID as before - untouched)
+- monitor http://127.0.0.1:2080/ -> 200; a23-cloudflare-ddns Up 10 h
+- free -m: total 3590 / available ~2061 MB; swap 647/4095 MB; dmesg: no OOM
+- public https://font.esma.eu.org/health/live -> 200
+
+### Notes
+
+- No style failed naturally in the live run, so live DONE_WITH_ERRORS was not
+  observed; partial-failure isolation (M6.A2) is proved offline with the
+  diagnostic forced-failure hook and documented as such.
+- The hollow guard ships only binaries > 20 KB (fast15 hollow-artifact
+  protection); zip entry order is deterministic (fonts sorted, reports
+  sorted, manifest last) with fixed timestamps, so identical inputs give
+  identical zip sha256.
