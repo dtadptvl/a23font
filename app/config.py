@@ -59,6 +59,9 @@ class Config:
     # in this milestone; T-007 enables it on the real A23.
     pipeline_live: bool = False
     extra_source_hosts: str = ""
+    # M6 collection knobs
+    max_styles: int = 0          # A23FONT_MAX_STYLES (0 = unlimited)
+    force_fail_styles: str = ""  # A23FONT_FORCE_FAIL_STYLES (diagnostic only)
 
     def __post_init__(self) -> None:
         self.data_root = Path(self.data_root)
@@ -121,6 +124,8 @@ class Config:
             pipeline_version=text("A23FONT_PIPELINE_VERSION", "1"),
             pipeline_live=flag("A23FONT_PIPELINE_LIVE", False),
             extra_source_hosts=text("A23FONT_EXTRA_SOURCE_HOSTS", ""),
+            max_styles=number("A23FONT_MAX_STYLES", 0),
+            force_fail_styles=text("A23FONT_FORCE_FAIL_STYLES", ""),
         )
 
 

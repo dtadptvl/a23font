@@ -87,6 +87,82 @@ def test_download_conflict_before_done(app_client):
     assert download.json()["error"] == "job_not_finished"
 
 
+def _finish_job_with_zip(cfg, job_id: str, status: str, write_file: bool = True):
+    """Forge a terminal job row (+ artifact) for download-route coverage."""
+    zip_path = cfg.data_root / "outputs" / f"{job_id}.zip"
+    payload = b"PK\x03\x04a23font-test-zip"
+    if write_file:
+        zip_path.write_bytes(payload)
+    conn = open_db(cfg.data_root / "db" / "a23font.db")
+    try:
+        conn.execute(
+            "UPDATE jobs SET status = ?, zip_name = ?, zip_size = ? WHERE id = ?",
+            (status, zip_path.name, len(payload), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return payload
+
+
+def test_download_serves_zip_for_done_and_done_with_errors(app_client, cfg):
+    for status in ("DONE", "DONE_WITH_ERRORS"):
+        response = app_client.post(
+            "/jobs", data={"url": VALID_URL}, follow_redirects=False
+        )
+        assert response.status_code == 303
+        job_id = response.headers["location"].rsplit("/", 1)[1]
+        payload = _finish_job_with_zip(cfg, job_id, status)
+        download = app_client.get(f"/jobs/{job_id}/download")
+        assert download.status_code == 200, (status, download.text)
+        assert download.headers["content-type"] == "application/zip"
+        assert download.headers["content-disposition"] == (
+            f'attachment; filename="{job_id}.zip"'
+        )
+        assert download.content == payload
+
+
+def test_download_no_artifact_is_409(app_client, cfg):
+    # downloadable status but no zip recorded (e.g. packaging failed)
+    response = app_client.post("/jobs", data={"url": VALID_URL}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    conn = open_db(cfg.data_root / "db" / "a23font.db")
+    try:
+        conn.execute(
+            "UPDATE jobs SET status = 'DONE_WITH_ERRORS', zip_name = NULL WHERE id = ?",
+            (job_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    download = app_client.get(f"/jobs/{job_id}/download")
+    assert download.status_code == 409
+    assert download.json()["error"] == "no_artifact"
+
+
+def test_download_failed_job_is_409_not_finished(app_client, cfg):
+    response = app_client.post("/jobs", data={"url": VALID_URL}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    conn = open_db(cfg.data_root / "db" / "a23font.db")
+    try:
+        conn.execute("UPDATE jobs SET status = 'FAILED' WHERE id = ?", (job_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    download = app_client.get(f"/jobs/{job_id}/download")
+    assert download.status_code == 409
+    assert download.json()["error"] == "job_not_finished"
+
+
+def test_download_missing_file_is_404(app_client, cfg):
+    response = app_client.post("/jobs", data={"url": VALID_URL}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    _finish_job_with_zip(cfg, job_id, "DONE", write_file=False)
+    download = app_client.get(f"/jobs/{job_id}/download")
+    assert download.status_code == 404
+    assert download.json()["error"] == "artifact_missing"
+
+
 def test_cancel_redirect(app_client):
     response = app_client.post("/jobs", data={"url": VALID_URL}, follow_redirects=False)
     assert response.status_code == 303

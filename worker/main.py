@@ -40,7 +40,8 @@ from app import services
 from app.config import Config
 from app.db import open_db, utcnow_iso
 from app.logging_conf import log_event, setup_logging
-from pipeline.orchestrator import CancelledWork
+from pipeline.orchestrator import CancelledWork, PipelineNotImplementedError
+from pipeline.pack import build_collection_zip, collect_style_packages
 from worker.live_http import LiveHttpError, RestrictedClient, live_raster_hosts
 
 POLL_SECONDS = 5.0
@@ -223,15 +224,141 @@ class WorkerJobCtx:
 
 
 # ---------------------------------------------------------------------------
+# M6: multi-style collection flow (partial-failure isolation)
+# ---------------------------------------------------------------------------
+
+#: error-code fragments that classify as network failures
+_NETWORK_HINTS = ("NETWORK", "DNS", "TIMEOUT", "CONNECT", "SOCKET", "SSL", "LIVE_")
+
+
+def classify_style_error(code: Optional[str]) -> str:
+    """Map an arbitrary failure code onto the M6 style-error classification:
+
+    DISCOVERY_EMPTY | NETWORK | NO_GLYPHS_FROZEN | VALIDATION_FAILED |
+    VIETNAMESE_PENDING | UNKNOWN.
+    """
+    upper = str(code or "").upper()
+    if "DISCOVERY_EMPTY" in upper:
+        return "DISCOVERY_EMPTY"
+    if "NO_GLYPHS_FROZEN" in upper:
+        return "NO_GLYPHS_FROZEN"
+    if "VALIDATION" in upper:
+        return "VALIDATION_FAILED"
+    if "VIETNAMESE" in upper:
+        return "VIETNAMESE_PENDING"
+    if any(hint in upper for hint in _NETWORK_HINTS):
+        return "NETWORK"
+    return "UNKNOWN"
+
+
+def forced_failure_names(cfg: Config) -> frozenset:
+    """A23FONT_FORCE_FAIL_STYLES: ';'-separated style names (diagnostic hook).
+
+    Matching styles are marked FAILED/FORCED_TEST_FAILURE before execution.
+    Ops/testing only - production leaves the knob empty (see .env.example).
+    """
+    raw = str(getattr(cfg, "force_fail_styles", "") or "")
+    return frozenset(part.strip().lower() for part in raw.split(";") if part.strip())
+
+
+async def run_styles(
+    wctx: WorkerJobCtx,
+    style_specs: List[Dict[str, Any]],
+    style_executor: Callable[[Dict[str, Any]], Awaitable[None]],
+    *,
+    family_name: Optional[str] = None,
+) -> None:
+    """Run every style sequentially with partial-failure isolation (M6).
+
+    - register_styles honors cfg.max_styles (audit event "styles_truncated");
+    - cancel/shutdown is honored BETWEEN styles (raises, aborting the job);
+    - the A23FONT_FORCE_FAIL_STYLES diagnostic hook marks matching style
+      names FAILED/FORCED_TEST_FAILURE before they run;
+    - ANY per-style exception is contained: the style is marked FAILED with a
+      classified error code and the remaining styles still run. Only cancel,
+      shutdown or the per-style budget stop the collection early.
+
+    The executor receives the style row and records the normal DONE/FAILED
+    outcome itself (it owns timing + report_json); run_styles records the
+    exception outcomes.
+    """
+    conn = wctx.conn
+    max_styles = int(getattr(wctx.cfg, "max_styles", 0) or 0)
+    rows = services.register_styles(
+        conn, wctx.job_id, list(style_specs), max_styles=max_styles
+    )
+    stage_extra: Dict[str, Any] = {}
+    if family_name:
+        stage_extra["collection_name"] = str(family_name)[:200]
+    services.set_stage(
+        conn, wctx.job_id, "DISCOVERING", worker_id=wctx.worker_id, **stage_extra
+    )
+    services.touch_heartbeat(conn, wctx.job_id, wctx.worker_id)
+
+    forced = forced_failure_names(wctx.cfg)
+    for row in rows:
+        wctx.check_cancel()
+        row_id = row["id"]
+        name = str(row.get("name") or "")
+        if forced and name.strip().lower() in forced:
+            services.set_style_status(
+                conn,
+                row_id,
+                "FAILED",
+                error_code="FORCED_TEST_FAILURE",
+                error_message=(
+                    "diagnostic hook A23FONT_FORCE_FAIL_STYLES matched this"
+                    " style name"
+                ),
+                duration_ms=0,
+            )
+            log_event(wctx.logger, "style_forced_failed", job_id=wctx.job_id, style=name)
+            continue
+        services.set_style_status(conn, row_id, "RECONSTRUCTING")
+        try:
+            await style_executor(row)
+        except (CancelledWork, WorkerShutdownRequested):
+            raise  # cancel/shutdown aborts the whole job, not just one style
+        except PipelineNotImplementedError as exc:
+            services.set_style_status(
+                conn,
+                row_id,
+                "FAILED",
+                error_code="VIETNAMESE_PENDING",
+                error_message=str(exc)[:500],
+            )
+        except JobError as exc:
+            services.set_style_status(
+                conn,
+                row_id,
+                "FAILED",
+                error_code=classify_style_error(exc.code),
+                error_message=str(exc.message)[:500],
+            )
+        except Exception as exc:  # noqa: BLE001 - partial-failure isolation
+            wctx.logger.exception("style_failed_unexpectedly")
+            services.set_style_status(
+                conn,
+                row_id,
+                "FAILED",
+                error_code="UNKNOWN",
+                error_message=f"{type(exc).__name__}: {exc}"[:500],
+            )
+        services.touch_heartbeat(conn, wctx.job_id, wctx.worker_id)
+
+# ---------------------------------------------------------------------------
 # default production runner (network path, guarded by cfg.pipeline_live)
 # ---------------------------------------------------------------------------
 
 async def default_job_runner(wctx: WorkerJobCtx) -> None:
-    """resolve -> register styles -> discover -> reconstruct per style.
+    """resolve -> register styles -> discover+reconstruct per style.
 
-    The live network route (myfonts resolve, gmap discovery, sig.monotype
-    raster fetches) requires A23FONT_PIPELINE_LIVE=true; in this milestone
-    the default is false and jobs fail honestly with NETWORK_DISABLED.
+    Multi-style collection semantics (M6): every style runs through
+    run_styles with partial-failure isolation; a failing style never aborts
+    the remaining styles. The live network route (myfonts resolve, gmap
+    discovery, sig.monotype raster fetches) requires A23FONT_PIPELINE_LIVE=
+    true; otherwise claimed jobs fail honestly with NETWORK_DISABLED
+    (job-level failure, before any style starts).
     """
     cfg = wctx.cfg
     conn = wctx.conn
@@ -268,9 +395,7 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
         }
         for style in request.styles
     ]
-    rows = services.register_styles(conn, wctx.job_id, style_specs)
-    wctx.set_stage("DISCOVERING")
-
+    family_name = request.family_name
     cache = CacheStore(cfg.data_root / "cache" / "pipeline", cfg.pipeline_version)
     obs_dir = cfg.data_root / "cache" / "observations"
     budget_s = float(getattr(cfg, "execution_budget_minutes", 15)) * 60.0
@@ -293,11 +418,10 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
             except LiveHttpError as exc:
                 raise JobError(exc.code, exc.message) from exc
 
-        for style_ref, row in zip(request.styles, rows):
-            wctx.check_cancel()
-            services.set_style_status(conn, row["id"], "RECONSTRUCTING")
-            t0 = time.monotonic()
-            if style_ref.identity.kind != "md5":
+        async def live_style(row: Dict[str, Any]) -> None:
+            """One style: discover -> reconstruct -> honest style status."""
+            md5 = row.get("md5")
+            if not md5:
                 services.set_style_status(
                     conn,
                     row["id"],
@@ -305,8 +429,8 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                     error_code="DISCOVERY_NO_MD5",
                     error_message="fallback identity has no md5 for gmap discovery",
                 )
-                continue
-            md5 = style_ref.identity.value
+                return
+            t0 = time.monotonic()
             manifest = await discovery.discover_glyphs(fetch_page, md5)
             if manifest.total_glyphs == 0:
                 services.set_style_status(
@@ -319,8 +443,9 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                         f" (stop={manifest.stop_reason})"
                         f" {'; '.join(manifest.notes)[:300]}"
                     ),
+                    duration_ms=int((time.monotonic() - t0) * 1000),
                 )
-                continue
+                return
             metrics = estimate_from_manifest(manifest, {})
             raster = RasterProvider(cfg, fetch_bytes=fetch_bytes, cache_obs_dir=obs_dir)
 
@@ -347,8 +472,8 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                 octx,
                 md5,
                 {"vietnamese": vietnamese},
-                request.family_name,
-                style_ref.name,
+                family_name,
+                row["name"],
                 manifest,
                 metrics,
             )
@@ -361,7 +486,10 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                     cache_hit=bool(res.cache_hit),
                     duration_ms=duration_ms,
                     report_json={
+                        "family": family_name,
+                        "glyphs_total": res.glyphs_total,
                         "glyphs_frozen": res.glyphs_frozen,
+                        "glyphs_failed": res.glyphs_failed,
                         "cache_hit": res.cache_hit,
                         "validation_passed": bool(res.validation.get("passed")),
                     },
@@ -371,12 +499,19 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                     conn,
                     row["id"],
                     "FAILED",
-                    error_code="STYLE_BUILD_FAILED",
+                    error_code=classify_style_error(res.error),
                     error_message=res.error or "style reconstruction failed",
                     duration_ms=duration_ms,
-                    report_json={"glyphs_frozen": res.glyphs_frozen, "error": res.error},
+                    report_json={
+                        "family": family_name,
+                        "glyphs_total": res.glyphs_total,
+                        "glyphs_frozen": res.glyphs_frozen,
+                        "glyphs_failed": res.glyphs_failed,
+                        "error": res.error,
+                    },
                 )
 
+        await run_styles(wctx, style_specs, live_style, family_name=family_name)
 
 # ---------------------------------------------------------------------------
 # job execution framework
@@ -436,7 +571,7 @@ async def run_job(
         return "FAILED"
 
     rows = conn.execute(
-        "SELECT status FROM style_jobs WHERE job_id = ? ORDER BY position ASC, id ASC",
+        "SELECT * FROM style_jobs WHERE job_id = ? ORDER BY position ASC, id ASC",
         (job_id,),
     ).fetchall()
     report = _resources_report(conn, job_id, worker_id, started)
@@ -449,8 +584,63 @@ async def run_job(
         return "FAILED"
     statuses = [row["status"] for row in rows]
     done = sum(1 for status in statuses if status == "DONE")
+
+    # PACKAGING (M6): build the collection ZIP from the cached style
+    # artifacts + style rows. Mandate: NO zip when zero styles succeeded.
+    # A packaging failure must never discard honest style results: the job
+    # still finishes on its style outcomes, without an artifact (the
+    # download route then answers 409 no_artifact).
+    zip_name: Optional[str] = None
+    zip_size: Optional[int] = None
+    if done > 0:
+        services.set_stage(conn, job_id, "PACKAGING", worker_id=worker_id)
+        services.touch_heartbeat(conn, job_id, worker_id)
+        try:
+            job_now = services.get_job(conn, job_id) or job
+            job_pack = dict(job_now)
+            job_pack["pipeline_version"] = cfg.pipeline_version
+            try:
+                job_options = json.loads(job_now.get("options_json") or "{}")
+                if not isinstance(job_options, dict):
+                    job_options = {}
+            except ValueError:
+                job_options = {}
+            cache_options = {"vietnamese": bool(job_options.get("vietnamese"))}
+            packages = collect_style_packages(
+                [dict(row) for row in rows],
+                cache_root=cfg.data_root / "cache" / "pipeline",
+                pipeline_version=cfg.pipeline_version,
+                options=cache_options,
+                default_family=str(job_now.get("collection_name") or ""),
+            )
+            summary = build_collection_zip(
+                job_pack, packages, cfg.data_root / "outputs" / f"{job_id}.zip"
+            )
+            zip_name = summary.path.name
+            zip_size = summary.bytes
+            report["packaging"] = {
+                "zip_name": summary.path.name,
+                "zip_bytes": summary.bytes,
+                "zip_sha256": summary.sha256,
+                "entries": summary.entries,
+            }
+            log_event(
+                logger, "job_packaged", job_id=job_id,
+                zip_name=summary.path.name, zip_bytes=summary.bytes,
+            )
+        except Exception as exc:  # noqa: BLE001 - keep honest style outcomes
+            logger.exception("job_packaging_failed")
+            services.add_event(
+                conn, job_id, "packaging_failed",
+                {"error": f"{type(exc).__name__}: {exc}"[:400]},
+            )
+            report["packaging"] = {"error": f"{type(exc).__name__}: {exc}"[:400]}
+
     if done == len(rows):
-        services.finish_job(conn, job_id, "DONE", report=report)
+        services.finish_job(
+            conn, job_id, "DONE",
+            report=report, zip_name=zip_name, zip_size=zip_size,
+        )
         log_event(logger, "job_done", job_id=job_id, styles=len(rows))
         return "DONE"
     if done == 0:
@@ -465,6 +655,8 @@ async def run_job(
         conn, job_id, "DONE_WITH_ERRORS",
         error_message=f"{len(rows) - done} of {len(rows)} styles failed",
         report=report,
+        zip_name=zip_name,
+        zip_size=zip_size,
     )
     log_event(logger, "job_done_with_errors", job_id=job_id, done=done, total=len(rows))
     return "DONE_WITH_ERRORS"

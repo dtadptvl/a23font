@@ -139,6 +139,7 @@ def finish_job(
     error_code: Optional[str] = None,
     error_message: Optional[str] = None,
     zip_name: Optional[str] = None,
+    zip_size: Optional[int] = None,
     report: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Move a job into a terminal status with optional error/artifact data."""
@@ -155,6 +156,8 @@ def finish_job(
         assignments["error_message"] = error_message
     if zip_name is not None:
         assignments["zip_name"] = zip_name
+    if zip_size is not None:
+        assignments["zip_size"] = int(zip_size)
     if report is not None:
         assignments["report_json"] = json.dumps(report)
     columns = ", ".join(f"{key} = ?" for key in assignments)
@@ -179,7 +182,10 @@ def add_event(conn: sqlite3.Connection, job_id: str, event: str, detail: Optiona
 # ---------------------------------------------------------------------------
 
 def register_styles(
-    conn: sqlite3.Connection, job_id: str, styles: List[Dict[str, Any]]
+    conn: sqlite3.Connection,
+    job_id: str,
+    styles: List[Dict[str, Any]],
+    max_styles: int = 0,
 ) -> List[Dict[str, Any]]:
     """Register style rows for a job (restart-safe / idempotent).
 
@@ -187,10 +193,20 @@ def register_styles(
     exist for the job (worker restart after a claim) they are preserved, so
     style history is never lost or duplicated; styles_total is synced to the
     row count either way. Returns the style rows ordered by position.
+
+    max_styles (A23FONT_MAX_STYLES): when > 0 only the FIRST max_styles style
+    specs are registered; the truncation is recorded once as a
+    "styles_truncated" audit event (note: "styles truncated").
     """
     job = get_job(conn, job_id)
     if job is None:
         raise NotFoundError(job_id)
+    styles = list(styles or [])
+    total_available = len(styles)
+    limit = int(max_styles or 0)
+    truncated = limit > 0 and total_available > limit
+    if truncated:
+        styles = styles[:limit]
     existing = conn.execute(
         "SELECT COUNT(*) AS n FROM style_jobs WHERE job_id = ?", (job_id,)
     ).fetchone()["n"]
@@ -207,6 +223,18 @@ def register_styles(
                     style.get("source_identity"),
                     style.get("md5"),
                 ),
+            )
+        if truncated:
+            add_event(
+                conn,
+                job_id,
+                "styles_truncated",
+                {
+                    "note": "styles truncated",
+                    "available": total_available,
+                    "kept": len(styles),
+                    "max_styles": limit,
+                },
             )
     conn.execute(
         "UPDATE jobs SET styles_total = (SELECT COUNT(*) FROM style_jobs WHERE job_id = ?),"
