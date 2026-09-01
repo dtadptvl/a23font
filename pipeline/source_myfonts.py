@@ -46,6 +46,9 @@ ALLOWED_HOST = security.ALLOWED_HOST
 
 MAX_BODY_BYTES = 5 * 1024 * 1024
 MAX_REDIRECTS = 5
+# transient fetch failures (mobile DNS flaps) are retried once before the
+# dump-dom fallback is considered
+HTTP_ATTEMPTS = 2
 MIN_RENDERED_CHARS = 2048
 HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 CHROMIUM_TIMEOUT_S = 90.0
@@ -192,6 +195,10 @@ async def _http_get_chain(
 
     Returns (status, decoded_text) of the final response.
     """
+    if transport is None:
+        # IPv4-only sockets: on the A23 mobile network IPv6 egress is
+        # blackholed while DNS may sort AAAA first (deploy/a23/Dockerfile.a23).
+        transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
     async with httpx.AsyncClient(
         headers=_BROWSER_HEADERS,
         timeout=HTTP_TIMEOUT,
@@ -278,14 +285,19 @@ async def fetch_page(
     status: Optional[int] = None
     body: Optional[str] = None
     problem: Optional[str] = None
-    try:
-        status, body = await _http_get_chain(target, transport)
-    except security.SourceError as exc:
-        if exc.code in _GUARD_CODES:
-            raise
-        problem = f"{exc.code}: {exc}"
-    except httpx.HTTPError as exc:
-        problem = f"{type(exc).__name__}: {exc}"
+    for attempt in range(1, HTTP_ATTEMPTS + 1):
+        try:
+            status, body = await _http_get_chain(target, transport)
+            break
+        except security.SourceError as exc:
+            if exc.code in _GUARD_CODES:
+                raise
+            problem = f"{exc.code}: {exc}"
+        except httpx.HTTPError as exc:
+            problem = f"{type(exc).__name__}: {exc}"
+        status, body = None, None
+        if attempt < HTTP_ATTEMPTS:  # flaky mobile DNS: one bounded retry
+            await asyncio.sleep(0.75)
 
     if status is not None and 200 <= status < 300 and body is not None:
         if len(body) >= MIN_RENDERED_CHARS and _has_identity_markers(body):

@@ -15,6 +15,8 @@ A23FONT_DIR="${A23FONT_DIR:-/data/local/chroot/debian/opt/a23font}"
 CHROOT_DIR="/data/local/chroot/debian"
 PROJECT="a23font"
 HOST_PORT="${A23FONT_HOST_PORT:-8090}"
+# Image tag to run; rollback = rerun with the previous tag (v1 is kept)
+IMAGE="${A23FONT_IMAGE_TAG:-a23font:v1}"
 
 chroot_exec() {
   # Note: this device's chroot needs an absolute binary path (/bin/sh).
@@ -81,13 +83,13 @@ up() {
     --network host \
     --no-healthcheck \
     -v a23font-data:/data \
-    a23font:v1
+    $IMAGE
   run_container a23font-worker \
     --env-file /opt/a23font/.env \
     --network host \
     --no-healthcheck \
     -v a23font-data:/data \
-    a23font:v1 python -m worker.main
+    $IMAGE python -m worker.main
 }
 
 down() {

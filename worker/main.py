@@ -35,13 +35,13 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
-from urllib.parse import urlsplit
 
 from app import services
 from app.config import Config
 from app.db import open_db, utcnow_iso
 from app.logging_conf import log_event, setup_logging
 from pipeline.orchestrator import CancelledWork
+from worker.live_http import LiveHttpError, RestrictedClient, live_raster_hosts
 
 POLL_SECONDS = 5.0
 HEARTBEAT_EVERY = 12  # heartbeat log line every 12 idle iterations (~60s)
@@ -243,8 +243,6 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
             "(A23FONT_PIPELINE_LIVE=true enables it; T-007 proves it on the A23)",
         )
 
-    import httpx
-
     from app import security
     from pipeline import discovery
     from pipeline.cache import CacheStore
@@ -277,27 +275,23 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
     obs_dir = cfg.data_root / "cache" / "observations"
     budget_s = float(getattr(cfg, "execution_budget_minutes", 15)) * 60.0
 
-    timeout = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=15.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-
-        async def _guard(url: str) -> None:
-            host = urlsplit(url).hostname
-            if host != discovery.RASTER_HOST:
-                raise JobError("BAD_RASTER_HOST", f"refusing non-raster host: {host}")
+    # Restricted live client: allowlist (sig.monotype.com + configured extra
+    # source hosts), bounded retries for the flaky mobile network, IPv4-only
+    # sockets, hop-by-hop redirect validation (see worker.live_http).
+    hosts = live_raster_hosts(cfg)
+    async with RestrictedClient(hosts) as live:
 
         async def fetch_page(url: str):
-            await _guard(url)
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                raise JobError("RASTER_HTTP_ERROR", f"gmap HTTP {resp.status_code} for {url}")
-            return resp.json()
+            try:
+                return await live.get_json(url)
+            except LiveHttpError as exc:
+                raise JobError(exc.code, exc.message) from exc
 
         async def fetch_bytes(url: str) -> Optional[bytes]:
-            await _guard(url)
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return None
-            return resp.content
+            try:
+                return await live.get_bytes(url)
+            except LiveHttpError as exc:
+                raise JobError(exc.code, exc.message) from exc
 
         for style_ref, row in zip(request.styles, rows):
             wctx.check_cancel()
@@ -314,6 +308,19 @@ async def default_job_runner(wctx: WorkerJobCtx) -> None:
                 continue
             md5 = style_ref.identity.value
             manifest = await discovery.discover_glyphs(fetch_page, md5)
+            if manifest.total_glyphs == 0:
+                services.set_style_status(
+                    conn,
+                    row["id"],
+                    "FAILED",
+                    error_code="DISCOVERY_EMPTY",
+                    error_message=(
+                        "glyph discovery produced zero glyphs"
+                        f" (stop={manifest.stop_reason})"
+                        f" {'; '.join(manifest.notes)[:300]}"
+                    ),
+                )
+                continue
             metrics = estimate_from_manifest(manifest, {})
             raster = RasterProvider(cfg, fetch_bytes=fetch_bytes, cache_obs_dir=obs_dir)
 

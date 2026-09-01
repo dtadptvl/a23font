@@ -19,7 +19,9 @@ CHROOT_DIR="/data/local/chroot/debian"
 SRC="/opt/a23font"
 CACHE="$SRC/.buildcache"
 BASE="python:3.12-slim-bookworm"
-IMG="a23font:v1"
+# Image tag is parameterized so a new build (v2) never clobbers the
+# rollback image (v1): A23FONT_IMAGE_TAG=a23font:v2 sh build-offline.sh
+IMG="${A23FONT_IMAGE_TAG:-a23font:v1}"
 
 chroot_exec() { chroot "$CHROOT_DIR" /bin/sh -lc "$1"; }
 
